@@ -1,0 +1,153 @@
+########Install Docker in centOS7
+---
+- hosts: all
+  become: true
+
+  vars_files:
+  - env_variable
+  tasks:
+
+  - name: Install Open ssh server
+    yum:
+      name: openssh-server
+      state: latest
+
+  - name: Install Open ssh client
+    yum:
+      name: openssh-clients
+      state: latest
+
+  - name: Start ssh service
+    service:
+      name: sshd
+      state: started
+      enabled: yes
+    become: yes
+
+  - name: Disabling Swap on all nodes
+    shell: swapoff -a
+
+  - name: Commenting Swap entries in /etc/fstab
+    replace:
+     path: /etc/fstab
+     regexp: '(.*swap*)'
+     replace: '#\1'
+
+  - name: cleanup if there is a Kubernetes repo
+    shell: rm -rf /etc/yum.repos.d/kubernetes.repo
+
+
+  - name: Creating a repository file for Kubernetes
+    file:
+     path: /etc/yum.repos.d/kubernetes.repo
+     state: touch
+
+  - name: Adding repository details in Kubernetes repo file.
+    blockinfile:
+     path: /etc/yum.repos.d/kubernetes.repo
+     block: |
+      [kubernetes]
+      name=Kubernetes
+      baseurl=https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
+      enabled=1
+      gpgcheck=1
+      repo_gpgcheck=1
+      gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg
+        https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+ 
+
+
+  - name: Install DNF
+    yum:
+      name: dnf
+      state: latest
+      update_cache : no 
+
+  - name: install python modules.
+    dnf:
+      name: python2
+      state: present
+
+  - name: Install python-dnf module
+    dnf:
+      name: python-dnf
+      state: present
+      
+  - name: Install Docker
+    dnf:
+      name: docker
+      state: latest
+
+  - name: Ensure group "docker" exists
+    group:
+      name: docker
+      state: present
+
+  - name: Ensure user in docker group 
+    user:
+      name: vagrant
+      groups: docker
+      append: true
+
+  - name: Start Docker service
+    service:
+      name: docker
+      state: started
+
+  - name: firewalld
+    shell: |
+     yum install firewalld -y
+
+
+  - name: Installing required packages
+    yum:
+      name: "{{ packages }}"
+      state: present
+      update_cache: yes
+    vars:
+      packages:
+        - kubeadm
+        - kubectl
+
+  - name: Starting and Enabling the required services
+    service:
+     name: "{{ item }}"
+     state: started
+     enabled: yes
+    with_items: "{{ services }}"
+
+  - name: Allow Network Ports in Firewalld
+    firewalld:
+     port: "{{ item }}"
+     state: enabled
+     permanent: yes
+     immediate: yes
+    with_items: "{{ ports }}"
+
+  - name: Enabling Bridge Firewall Rule
+    shell: "echo '1' > /proc/sys/net/bridge/bridge-nf-call-iptables"
+
+
+  - name: Start Docker service
+    service:
+      name: docker
+      state: started
+
+  - name: Pulling images required for setting up a Kubernetes cluster
+    become: yes
+    command: "kubeadm config images pull"
+    
+
+
+  - name: Resetting kubeadm
+    become: yes
+    shell: kubeadm reset -f
+    register: output
+
+  - name: Initializing Kubernetes cluster
+    become: yes
+    shell:  kubeadm init --pod-network-cidr=192.168.0.0/16   
+  #shell: sudo kubeadm init --apiserver-advertise-address {{ad_addr}} --pod-network-cidr={{cidr_v}}
+
+
+    
